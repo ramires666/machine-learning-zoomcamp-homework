@@ -85,7 +85,7 @@ def lambda_handler(event, context):
 
         print(f"Predicting for URL: {url}")
 
-        result = predict(url)
+        result = predict(url).item()
         print(f"Prediction result: {result}")
 
         return {
