@@ -1,80 +1,80 @@
 #%%
 import onnxruntime as ort
 import numpy as np
-import os
-from keras_image_helper import create_preprocessor
 import json
+from io import BytesIO
+from urllib import request
+from PIL import Image
+
+def download_image(url):
+    with request.urlopen(url) as resp:
+        buffer = resp.read()
+    stream = BytesIO(buffer)
+    img = Image.open(stream)
+    return img
 
 
-def preprocess_pytorch_style(X):
-    # X: shape (1, 3, 299, 299, dtype=float32, values in [0, 255])
-    # Эта строка была псевдокодом и вызывала ошибку синтаксиса. Я её закомментировал.
-    # На вход мы получаем массив изображений (batch) от keras_image_helper.
-    # Обычно это формат NHWC: (количество, высота, ширина, каналы).
-
-    # 1. Приводим значения пикселей к диапазону [0, 1].
-    # Изначально они от 0 до 255. Делим на 255.0, чтобы получить float.
-    X = X / 255.0
-
-    # 2. Задаем параметры нормализации (среднее и стандартное отклонение).
-    # Эти числа — стандарт для моделей, обученных на ImageNet (как MobileNet, ResNet и др.).
-    # Мы делаем reshape в (1, 3, 1, 1), чтобы эти массивы соответствовали формату NCHW (каналы на втором месте).
-    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 3, 1, 1)
-    std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 3, 1, 1)
-
-    # Convert NHWC → NCHW
-    # from (batch, height, width, channels) → (batch, channels, height, width)
-    # 3. Меняем порядок осей (транспонируем).
-    # PyTorch и ONNX любят, когда каналы (цвета) идут перед высотой и шириной.
-    X = X.transpose(0, 3, 1, 2)
-
-    # Normalize
-    # 4. Нормализуем: вычитаем среднее и делим на разброс (стандартное отклонение).
-    # Благодаря reshape выше, numpy понимает, как отнять (1,3,1,1) от (1,3,299,299).
-    X = (X - mean) / std
-
-    # Возвращаем результат, явно указывая тип float32 (это важно для ONNX Runtime).
-    return X.astype(np.float32)
+def prepare_image(img, target_size):
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    img = img.resize(target_size, Image.NEAREST)
+    return img
 
 
-preprocessor = create_preprocessor(preprocess_pytorch_style, target_size=(224, 224))
-# preprocessor = create_preprocessor("xception", target_size=(299, 299))
+def preprocess(img, size=(200, 200), add_batch=True):
+    MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)  # RGB
+    STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)  # RGB
 
-# Выносим имя модели в переменную окружения. Если переменной нет, берем дефолтное значение.
-MODEL_NAME = os.getenv("MODEL_NAME", "clothing_classifier_mobilenet_v2_latest.onnx")
+    # img = img.resize(size, resample=Image.BILINEAR)
 
-session = ort.InferenceSession(
-    MODEL_NAME, providers=["CPUExecutionProvider"]
-)
-input_name = session.get_inputs()[0].name
-output_name = session.get_outputs()[0].name
+    # ToTensor(): HWC uint8 -> float32 CHW в [0,1] [web:197]
+    x = np.asarray(img, dtype=np.float32)  # (H,W,3), 0..255
+    x = x / 255.0  # (H,W,3), 0..1
+    x = np.transpose(x, (2, 0, 1))  # (3,H,W) = CHW
 
-classes = [
-    "dress",
-    "hat",
-    "longsleeve",
-    "outwear",
-    "pants",
-    "shirt",
-    "shoes",
-    "shorts",
-    "skirt",
-    "t-shirt",
-]
+    # Normalize: (x - mean) / std
+    x = (x - MEAN[:, None, None]) / STD[:, None, None]
+
+    # Batch dimension = (tensor_img.unsqueeze(0))
+    if add_batch:
+        x = x[None, :, :, :]    # (1,3,H,W)
+
+    return x.astype(np.float32)
 
 
 def predict(url):
-    X = preprocessor.from_url(url)
+    img = download_image(url)
+    img = prepare_image(img, target_size=(200, 200))
+    X = preprocess(img)
+
+    session = ort.InferenceSession("hair_classifier_empty.onnx", providers=["CPUExecutionProvider"])
+    input_name = session.get_inputs()[0].name
+    output_name = session.get_outputs()[0].name
+
     result = session.run([output_name], {input_name: X})
-    float_predictions = result[0][0].tolist()
-    d = dict(zip(classes, float_predictions))
-    return sorted(d.items(), key=lambda kv: kv[1], reverse=True)
+    return result[0][0][0]
+
 
 #%%
+## TESTING:
+url = "https://habrastorage.org/webt/yf/_d/ok/yf_dokzqy3vcritme8ggnzqlvwa.jpeg"
+# straight:
+url = "https://www.indiquehair.com/cdn/shop/files/Indique_SEA_Bali_Straight.jpg?v=1756924716&width=1080"
+url = "https://media.istockphoto.com/id/1697342572/photo/portrait-of-woman-with-perfect-long-straight-hair-in-a-natural-color-hairstyling-hair-care.jpg?s=612x612&w=0&k=20&c=RTl9HMCcWux7T-dtDGrnmnqbRCBszjHcZpRaAC_tocU="
+url = "https://i.pinimg.com/736x/69/c0/d5/69c0d5b003952682ba5ff36d6527d84b.jpg"
+url = "https://media.madison-reed.com/d3ewrnwdcmri66.cloudfront.net/content/images/2016/6/straighthair1/straighthair1-891x600.jpeg"
+url = "https://cdn.shopify.com/s/files/1/0641/2831/9725/files/Blunt_bob_for_straight_hair_women.webp?v=1750312910"
+url = 'https://i.pinimg.com/736x/43/07/8f/43078fe017bcf6170b065ce552bd88b4.jpg'
+# curly:
+url = 'https://i.pinimg.com/564x/e3/8a/1b/e38a1ba3ea4a9eb91a8750145450a0ed.jpg'
+url = 'https://live-essnc.s3.amazonaws.com/uploads/2024/06/41261604_238083550389311_2718376404700889088_n.jpg'
+url = 'https://curlmaven.ie/wp-content/uploads/2021/01/how-to-build-a-curly-hair-routine-feature-image-768x1152.jpg'
+url = 'https://edwardsandcoeducation.com/wp-content/uploads/2020/12/Screen-Shot-2020-12-18-at-5.00.58-pm.jpg'
+
+
 def lambda_handler(event, context):
-    # Добавляем обработку ошибок, чтобы понимать, что пошло не так в логах AWS Lambda
     try:
-        print(f"Received event: {event}") # Логируем входящее событие для дебага
+        print(f"Received event: {event}")
 
         body = event.get("body") or "{}"
         data = json.loads(body) if isinstance(body, str) else body
@@ -83,18 +83,15 @@ def lambda_handler(event, context):
         if not url:
             return {"statusCode": 400, "body": json.dumps("Error: URL is missing in the request body")}
 
-        # url: "http://bit.ly/mlbookcamp-pants" <- Тоже закомментировал, это невалидный код
         print(f"Predicting for URL: {url}")
 
         result = predict(url)
         print(f"Prediction result: {result}")
 
-        answer = f"So my guess is: its either a {result[0][0].upper()} or a {result[1][0].upper()} or maybe a {result[2][0].upper()}"
-
         return {
             "statusCode": 200,
             "headers": {"content-type": "application/json"},
-            "body": json.dumps(answer)
+            "body": json.dumps(result)
         }
     except Exception as e:
         print(f"Error in lambda_handler: {str(e)}")
