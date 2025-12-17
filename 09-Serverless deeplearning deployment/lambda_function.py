@@ -64,7 +64,7 @@ url = "https://media.istockphoto.com/id/1697342572/photo/portrait-of-woman-with-
 url = "https://i.pinimg.com/736x/69/c0/d5/69c0d5b003952682ba5ff36d6527d84b.jpg"
 url = "https://media.madison-reed.com/d3ewrnwdcmri66.cloudfront.net/content/images/2016/6/straighthair1/straighthair1-891x600.jpeg"
 url = "https://cdn.shopify.com/s/files/1/0641/2831/9725/files/Blunt_bob_for_straight_hair_women.webp?v=1750312910"
-url = 'https://i.pinimg.com/736x/43/07/8f/43078fe017bcf6170b065ce552bd88b4.jpg'
+url = 'https://img.wattpad.com/da171ffe58dbf5469ce46124f5582d3167e3db26/68747470733a2f2f73332e616d617a6f6e6177732e636f6d2f776174747061642d6d656469612d736572766963652f53746f7279496d6167652f4a6b4d726d526b41536f6a6d68513d3d2d34342e313664373065353361623135343564323338343234303232343334342e6a7067?s=fit&w=720&h=720'
 # curly:
 url = 'https://i.pinimg.com/564x/e3/8a/1b/e38a1ba3ea4a9eb91a8750145450a0ed.jpg'
 url = 'https://live-essnc.s3.amazonaws.com/uploads/2024/06/41261604_238083550389311_2718376404700889088_n.jpg'
@@ -79,6 +79,7 @@ def lambda_handler(event, context):
         body = event.get("body") or "{}"
         data = json.loads(body) if isinstance(body, str) else body
 
+        # url = event.get("url")
         url = data.get("url")
         if not url:
             return {"statusCode": 400, "body": json.dumps("Error: URL is missing in the request body")}
